@@ -112,6 +112,10 @@ mark{background:var(--gold-soft);color:var(--ink);border-radius:3px;padding:0 2p
 .att-drop.off label{opacity:.5;pointer-events:none}
 .signed{display:inline-flex;align-items:center;gap:3px;margin-left:8px;padding:1px 8px;border-radius:999px;background:var(--ok-soft);color:var(--ok);font-size:12px;font-weight:600;white-space:nowrap;vertical-align:middle}
 .signed svg{width:12px;height:12px}
+.signed[role=button]{cursor:pointer}
+.signed[role=button]:hover{filter:brightness(.95);text-decoration:underline}
+.att-btn{display:inline-flex;align-items:center;gap:4px}
+.att-btn svg{width:13px;height:13px}
 .lightbox{position:fixed;inset:0;z-index:60;background:rgba(10,9,6,.88);display:flex;flex-direction:column;padding:calc(env(safe-area-inset-top,0px) + 12px) max(16px,env(safe-area-inset-right,0px)) calc(env(safe-area-inset-bottom,0px) + 16px) max(16px,env(safe-area-inset-left,0px));gap:12px}
 .lb-bar{display:flex;gap:8px;align-items:center;color:#fff}
 .lb-bar span{margin-right:auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -414,6 +418,7 @@ table.p-items{width:100%;border-collapse:collapse;margin-top:26px;table-layout:f
   </section>
 </main>
 <div class="toast" id="toast" hidden role="status" aria-live="polite"></div>
+<input type="file" id="row-att-input" multiple accept="application/pdf,image/jpeg,image/png,image/webp,.pdf,.jpg,.jpeg,.png,.webp" hidden>
 <div class="lightbox" id="lightbox" hidden role="dialog" aria-modal="true" aria-label="ดูรูปเอกสาร"><div class="lb-bar"><span id="lb-name"></span><button type="button" class="btn sm" id="lb-dl">ดาวน์โหลด</button><button type="button" class="btn sm" id="lb-close">ปิด</button></div><img id="lb-img" alt=""></div>
 
 <script src="config.js"></script>
@@ -741,6 +746,7 @@ function render(){
     renderEditor();
   }
   window.scrollTo(0,0);
+  if(pendingScroll && isEd){ var ps=pendingScroll; pendingScroll=null; setTimeout(function(){ var el=document.getElementById(ps); if(el) el.scrollIntoView({block:"start"}); },50); }
 }
 
 // ---------- list ----------
@@ -807,8 +813,9 @@ function renderList(){
     var acts = cx
       ? '<button class="btn sm ghost" data-act="dup" data-id="'+id+'">คัดลอก</button>'
       : '<button class="btn sm ghost" data-act="xlsx" data-id="'+id+'">Excel</button><button class="btn sm ghost" data-act="pdf" data-id="'+id+'">PDF</button><button class="btn sm ghost" data-act="dup" data-id="'+id+'">คัดลอก</button>'+
+        (canWrite?'<button class="btn sm ghost att-btn" data-act="att" data-id="'+id+'"'+(rowUploading[x.id]?' disabled':'')+'>'+CLIP+(rowUploading[x.id]?'กำลังแนบ…':'แนบไฟล์')+'</button>':'')+
         (canWrite?'<button class="btn sm ghost danger" data-act="del" data-id="'+id+'">ลบ</button>':'');
-    return '<tr data-open="'+id+'"'+(cx?' class="cancelled"':'')+'><td><span class="no">'+esc(q.no||"—")+'</span>'+(cx?'<span class="stamp">ยกเลิก</span>':'')+((q.signedDocs||[]).length?'<span class="signed" title="มีเอกสารที่เซ็นครบแล้ว '+q.signedDocs.length+' ไฟล์">'+CLIP+'เซ็นครบ'+(q.signedDocs.length>1?' ('+q.signedDocs.length+')':'')+'</span>':'')+'</td><td>'+esc(fmtDate(q.date))+'</td>'+
+    return '<tr data-open="'+id+'"'+(cx?' class="cancelled"':'')+'><td><span class="no">'+esc(q.no||"—")+'</span>'+(cx?'<span class="stamp">ยกเลิก</span>':'')+((q.signedDocs||[]).length?'<span class="signed" data-act="viewatt" data-id="'+id+'" role="button" tabindex="0" title="ดูเอกสารที่เซ็นครบแล้ว '+q.signedDocs.length+' ไฟล์">'+CLIP+'เซ็นครบ'+(q.signedDocs.length>1?' ('+q.signedDocs.length+')':'')+'</span>':'')+'</td><td>'+esc(fmtDate(q.date))+'</td>'+
       '<td class="cust"><b>'+esc(q.company||"(ไม่ระบุบริษัท)")+'</b><span>'+esc(q.contact||"")+'</span>'+(hits[x.id]&&hits[x.id].length?hits[x.id].map(function(h){ return '<div class="hit"><em>'+esc(h.label)+':</em> '+h.html+'</div>'; }).join(""):'')+'</td>'+
       '<td class="amt">'+money(qTotal(q))+(q.vat?'<div class="muted" style="font-size:12px">รวม VAT</div>':'')+'</td>'+
       '<td class="muted" style="font-size:13px">'+esc(q.preparer||"")+'</td>'+
@@ -824,6 +831,8 @@ $("#rows").addEventListener("click", function(e){
     else if(act==="pdf") exportPdf(quotes[id]);
     else if(act==="dup") duplicate(id);
     else if(act==="del") armDelete(a, id);
+    else if(act==="att"){ rowAttId=id; var ri=$("#row-att-input"); ri.value=""; ri.click(); }
+    else if(act==="viewatt"){ pendingScroll="signed-card"; go("q-"+id); }
     return; }
   var tr=e.target.closest("[data-open]"); if(tr) go("q-"+tr.getAttribute("data-open"));
 });
@@ -1256,17 +1265,20 @@ function driveView(id){ return "https://drive.google.com/file/d/"+encodeURICompo
 function driveDownload(id){ return "https://drive.google.com/uc?export=download&id="+encodeURIComponent(id); }
 function driveThumb(id, w){ return "https://drive.google.com/thumbnail?id="+encodeURIComponent(id)+"&sz=w"+w; }
 function fileB64(f){ return new Promise(function(res, rej){ var fr=new FileReader(); fr.onload=function(){ res(String(fr.result).split(",")[1]||""); }; fr.onerror=function(){ rej(new Error("อ่านไฟล์ไม่ได้")); }; fr.readAsDataURL(f); }); }
-async function uploadSigned(fileList){
+async function uploadSigned(fileList, forId){
   var files=Array.prototype.slice.call(fileList||[]);
   if(!files.length) return;
-  if(!curId){ toast("บันทึกใบเสนอราคาก่อน แล้วจึงแนบเอกสารได้"); return; }
+  var qid=forId||curId;
+  if(!qid){ toast("บันทึกใบเสนอราคาก่อน แล้วจึงแนบเอกสารได้"); return; }
   if(!API_URL){ toast("ยังไม่ได้เชื่อม Google Drive"); return; }
-  var qid=curId, ok=0, bad=[];
+  var ok=0, bad=[], fromList=!!forId;
+  if(fromList){ rowUploading[qid]=true; renderList(); }
   for(var i=0;i<files.length;i++){
     var f=files[i], type=attType(f);
     if(!type){ bad.push(f.name+" (รองรับเฉพาะ PDF, JPG, PNG)"); continue; }
     if(f.size>20*1048576){ bad.push(f.name+" (ใหญ่เกิน 20 MB)"); continue; }
     var u={name:f.name,size:f.size}; uploading.push(u); busyUploads++; renderSigned();
+    if(fromList) toast("กำลังแนบ "+f.name+" ไป Google Drive"+(files.length>1?" ("+(i+1)+"/"+files.length+")":"")+"…");
     try{
       var b64=await fileB64(f);
       var j=await api("uploadFile",{id:qid, name:f.name, type:type, b64:b64});
@@ -1276,9 +1288,13 @@ async function uploadSigned(fileList){
       bad.push(f.name+" ("+(e&&e.message||"อัปโหลดไม่สำเร็จ")+")");
     }finally{ uploading.splice(uploading.indexOf(u),1); busyUploads--; renderSigned(); }
   }
-  if(ok && !bad.length) toast("แนบเอกสาร "+ok+" ไฟล์แล้ว");
+  if(fromList){ delete rowUploading[qid]; renderList(); }
+  var label=(quotes[qid]&&quotes[qid].no)?" ใน "+quotes[qid].no:"";
+  if(ok && !bad.length) toast("แนบเอกสาร "+ok+" ไฟล์"+label+" แล้ว");
   else if(bad.length) toast((ok?"แนบแล้ว "+ok+" ไฟล์ · ":"")+"ไม่สำเร็จ: "+bad.join(", "));
 }
+var rowUploading={}, rowAttId=null, pendingScroll=null;
+$("#row-att-input").addEventListener("change", function(e){ var fl=e.target.files, id=rowAttId; rowAttId=null; if(id) uploadSigned(fl, id).then(function(){ e.target.value=""; }); });
 $("#att-input").addEventListener("change", function(e){ var fl=e.target.files; uploadSigned(fl).then(function(){ e.target.value=""; }); });
 (function(){
   var drop=$("#att-drop");
