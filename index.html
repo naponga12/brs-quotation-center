@@ -813,7 +813,7 @@ function renderList(){
     var acts = cx
       ? '<button class="btn sm ghost" data-act="dup" data-id="'+id+'">คัดลอก</button>'
       : '<button class="btn sm ghost" data-act="xlsx" data-id="'+id+'">Excel</button><button class="btn sm ghost" data-act="pdf" data-id="'+id+'">PDF</button><button class="btn sm ghost" data-act="dup" data-id="'+id+'">คัดลอก</button>'+
-        (canWrite?'<button class="btn sm ghost att-btn" data-act="att" data-id="'+id+'"'+(rowUploading[x.id]?' disabled':'')+'>'+CLIP+(rowUploading[x.id]?'กำลังแนบ…':'แนบไฟล์')+'</button>':'')+
+        (canWrite?'<button class="btn sm ghost att-btn" data-act="att" data-id="'+id+'"'+(rowUploading[x.id]?' disabled':'')+'>'+CLIP+(rowUploading[x.id]?'กำลังแนบ…':'แนบ file approve complete')+'</button>':'')+
         (canWrite?'<button class="btn sm ghost danger" data-act="del" data-id="'+id+'">ลบ</button>':'');
     return '<tr data-open="'+id+'"'+(cx?' class="cancelled"':'')+'><td><span class="no">'+esc(q.no||"—")+'</span>'+(cx?'<span class="stamp">ยกเลิก</span>':'')+((q.signedDocs||[]).length?'<span class="signed" data-act="viewatt" data-id="'+id+'" role="button" tabindex="0" title="ดูเอกสารที่เซ็นครบแล้ว '+q.signedDocs.length+' ไฟล์">'+CLIP+'เซ็นครบ'+(q.signedDocs.length>1?' ('+q.signedDocs.length+')':'')+'</span>':'')+'</td><td>'+esc(fmtDate(q.date))+'</td>'+
       '<td class="cust"><b>'+esc(q.company||"(ไม่ระบุบริษัท)")+'</b><span>'+esc(q.contact||"")+'</span>'+(hits[x.id]&&hits[x.id].length?hits[x.id].map(function(h){ return '<div class="hit"><em>'+esc(h.label)+':</em> '+h.html+'</div>'; }).join(""):'')+'</td>'+
