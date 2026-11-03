@@ -643,7 +643,7 @@ var DEFAULTS = {
   addrTh:"999 ถนนสามเสน แขวงนครไชยศรี เขตดุสิต กรุงเทพมหานคร 10300",
   addrEn:"999 Samsen Road, Thanonnakornchaisri, Dusit, Bangkok 10300",
   taxId:"0105561113924", contact:"Email: navin_m@brs-group.com  Tel: 090-987-3478",
-  prefix:"Q-SCO-", validDays:30, credit:"30 วัน", priceUnit:"บาท/เดือน",
+  prefix:"Q/SCO/", validDays:30, credit:"30 วัน", priceUnit:"บาท/เดือน",
   preparer:"นาวิน มูลประเสริฐ", approver:"คุณปกรณ์ รัตนสุวรรณ", notes:""
 };
 
@@ -662,7 +662,7 @@ function toast(msg){ var t=$("#toast"); t.textContent=msg; t.hidden=false; clear
 
 // ---------- state ----------
 var API_URL = String((window.QC_CONFIG && window.QC_CONFIG.apiUrl) || "").trim();
-var canWrite=true, dbReady=false, loading=false;
+var canWrite=true, dbReady=false, loading=false, lastRefresh=0;
 var quotes = {};           // id -> data
 var registry = {};         // numbers issued: key -> {no, year, seq, quoteId}
 var settings = clone(DEFAULTS);
@@ -671,16 +671,16 @@ var search = "", hideCancelled=false;
 var CLIP='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m21 11-8.6 8.6a5 5 0 0 1-7-7L14 4a3.3 3.3 0 0 1 4.7 4.7l-8.6 8.6a1.7 1.7 0 0 1-2.4-2.4L15.6 7"/></svg>';
 try{ hideCancelled = !!localStorage.getItem("qc-hide-cancelled"); }catch(_){}
 
-// ---------- connection (Google Apps Script web app -> Google Sheets / Drive) ----------
+// ---------- connection (Power Automate flow -> Excel on SharePoint / OneDrive) ----------
 function setConn(msg, kind){ var c=$("#conn"); if(!msg){ c.hidden=true; return; } c.className="banner "+(kind||"warn"); c.textContent=msg; c.hidden=false; }
 async function api(action, payload){
-  if(!API_URL){ var e0=new Error("ยังไม่ได้ตั้งค่าที่อยู่ Google Apps Script ในไฟล์ config.js"); e0.code="no_api"; throw e0; }
+  if(!API_URL){ var e0=new Error("ยังไม่ได้ตั้งค่าที่อยู่ Power Automate ในไฟล์ config.js"); e0.code="no_api"; throw e0; }
   var res;
   try{
     res=await fetch(API_URL, {method:"POST", headers:{"Content-Type":"text/plain;charset=utf-8"}, body:JSON.stringify(Object.assign({action:action}, payload||{})), redirect:"follow"});
-  }catch(err){ var e1=new Error("ติดต่อ Google ไม่ได้ ตรวจอินเทอร์เน็ต แล้วลองอีกครั้ง"); e1.code="network"; throw e1; }
+  }catch(err){ var e1=new Error("ติดต่อระบบไม่ได้ ตรวจอินเทอร์เน็ต แล้วลองอีกครั้ง"); e1.code="network"; throw e1; }
   var j=null; try{ j=await res.json(); }catch(_){}
-  if(!res.ok || !j){ var e2=new Error("Google ตอบกลับผิดปกติ ("+res.status+") ตรวจว่า Deploy เป็น Web app แบบ Anyone แล้ว"); e2.code="bad_response"; throw e2; }
+  if(!res.ok || !j){ var e2=new Error("ระบบตอบกลับผิดปกติ ("+res.status+") ลองอีกครั้ง ถ้ายังไม่ได้ให้ตรวจว่า Flow ใน Power Automate เปิดอยู่"); e2.code="bad_response"; throw e2; }
   if(!j.ok){ var e3=new Error(j.message||"ทำรายการไม่สำเร็จ"); e3.code=j.code||"server"; e3.no=j.no; throw e3; }
   return j;
 }
@@ -700,17 +700,18 @@ function afterData(){
   if(cur) renderPreview();
 }
 async function refresh(quiet){
-  if(loading) return; loading=true;
+  if(loading) return; loading=true; lastRefresh=Date.now();
   try{ var j=await api("bootstrap"); dbReady=true; setConn(null); applyData(j); }
   catch(e){ dbReady=true; if(!quiet || !Object.keys(quotes).length) setConn(e.message, "err"); renderList(); }
   finally{ loading=false; }
 }
 function boot(){
-  if(!API_URL){ dbReady=true; setConn("ยังไม่ได้เชื่อม Google Sheets: ใส่ที่อยู่ Web app ของ Google Apps Script ในไฟล์ config.js ตามคู่มือ", "err"); renderList(); return; }
+  if(!API_URL){ dbReady=true; setConn("ยังไม่ได้เชื่อมระบบ: ใส่ที่อยู่ HTTP ของ Flow ใน Power Automate ในไฟล์ config.js ตามคู่มือ", "err"); renderList(); return; }
   refresh(false);
-  // keep everyone's screen up to date without hammering Google: once a minute, only while the tab is visible
-  setInterval(function(){ if(document.visibilityState==="visible" && !saving && !busyUploads) refresh(true); }, 60000);
-  document.addEventListener("visibilitychange", function(){ if(document.visibilityState==="visible" && !saving && !busyUploads) refresh(true); });
+  // keep everyone's screen up to date without using up Power Automate runs: every 5 minutes while the tab is visible,
+  // and when the tab comes back into view (at most once every 2 minutes)
+  setInterval(function(){ if(document.visibilityState==="visible" && !saving && !busyUploads) refresh(true); }, 300000);
+  document.addEventListener("visibilitychange", function(){ if(document.visibilityState==="visible" && !saving && !busyUploads && Date.now()-lastRefresh>120000) refresh(true); });
 }
 function resolveNames(){}
 function applyReadOnly(){
@@ -813,7 +814,7 @@ function renderList(){
   $("#list-sum").textContent = !dbReady ? "กำลังโหลดข้อมูล…" : (all.length ? ("ใช้งาน "+active.length+" ใบ · มูลค่ารวม "+money(sum)+" บาท"+(nCancel?" · ลบแล้ว "+nCancel+" ใบ":"")) : "ยังไม่มีข้อมูล");
   $("#empty").hidden = rows.length>0 || !dbReady;
   if(all.length && !rows.length){ $("#empty").hidden=false; $("#empty").innerHTML="<b>ไม่พบใบที่ตรงกับการค้นหา</b>ลองเปลี่ยนคำค้น"; }
-  else if(!all.length){ $("#empty").innerHTML="<b>ยังไม่มีใบเสนอราคา</b>กด “สร้างใบเสนอราคา” ด้านบนเพื่อเริ่มใบแรก ใบที่บันทึกจะเก็บใน Google Sheets และแสดงที่นี่ให้ทุกคนในทีมเห็น"; }
+  else if(!all.length){ $("#empty").innerHTML="<b>ยังไม่มีใบเสนอราคา</b>กด “สร้างใบเสนอราคา” ด้านบนเพื่อเริ่มใบแรก ใบที่บันทึกจะเก็บในไฟล์ Excel บน SharePoint และแสดงที่นี่ให้ทุกคนในทีมเห็น"; }
   $("#rows").innerHTML=rows.map(function(x){
     var q=x.q, id=esc(x.id), cx=!!q.cancelled;
     var acts = cx
@@ -1079,7 +1080,8 @@ function cachedLatest(year){
 function cachedTaken(no, ownId){
   no=String(no||"").trim(); if(!no) return false;
   var r=registry[noKey(no)]||localReg[noKey(no)];
-  if(r && r.quoteId!==ownId) return true;
+  var ownNo = ownId && quotes[ownId] ? String(quotes[ownId].no||"").trim() : "";
+  if(r && no!==ownNo && r.quoteId!==ownId) return true;
   return Object.keys(quotes).some(function(k){ return k!==ownId && (quotes[k].no||"").trim()===no; });
 }
 function updNoHint(){
@@ -1124,7 +1126,8 @@ async function save(){
     var wasAuto=!!q.autoNo, shown=shownNo; delete q.autoNo;
     if(wasAuto) q.no="";
     delete q.signedDocs; delete q.createdBy; delete q.updatedBy;
-    var j=await api("saveQuote",{id:curId||null, quote:q, autoNo:wasAuto});
+    var prevNo = curId && quotes[curId] ? String(quotes[curId].no||"").trim() : "";
+    var j=await api("saveQuote",{id:curId||null, quote:q, autoNo:wasAuto, prevNo:prevNo, prefix:settings.prefix||"Q/SCO/"});
     var id=j.id; q=j.quote; quotes[id]=q;
     if(j.number) registry[noKey(j.number.no)]=j.number;
     renderList(); refreshCompanyList();
@@ -1254,9 +1257,9 @@ function renderSigned(){
     var isImg=/^image\//.test(d.type);
     var canDel=!cx && canWrite;
     return '<div class="att" data-i="'+i+'">'+
-      '<button type="button" class="att-thumb" data-att-view="'+i+'" aria-label="ดู '+esc(d.name)+'">'+(isImg?'<img src="'+driveThumb(d.id,160)+'" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.replaceWith(document.createTextNode(\'รูป\'))">':'PDF')+'</button>'+
+      '<button type="button" class="att-thumb" data-att-view="'+i+'" aria-label="ดู '+esc(d.name)+'">'+(isImg?'รูป':'PDF')+'</button>'+
       '<div class="att-meta"><b title="'+esc(d.name)+'">'+esc(d.name)+'</b><span>'+fileSize(d.size)+' · แนบเมื่อ '+esc(d.at?new Date(d.at).toLocaleString("en-GB",{dateStyle:"short",timeStyle:"short"}):"")+'</span></div>'+
-      '<div class="att-acts"><a class="btn sm" href="'+driveView(d.id)+'" target="_blank" rel="noopener">เปิดดู</a><a class="btn sm" href="'+driveDownload(d.id)+'" target="_blank" rel="noopener">ดาวน์โหลด</a>'+(canDel?'<button type="button" class="btn sm ghost danger" data-att-del="'+i+'">ลบไฟล์</button>':'')+'</div></div>';
+      '<div class="att-acts"><a class="btn sm" href="'+esc(docView(d))+'" target="_blank" rel="noopener">เปิดดู</a><a class="btn sm" href="'+esc(docDownload(d))+'" target="_blank" rel="noopener">ดาวน์โหลด</a>'+(canDel?'<button type="button" class="btn sm ghost danger" data-att-del="'+i+'">ลบไฟล์</button>':'')+'</div></div>';
   }).join("")+uploading.map(function(u){ return '<div class="att uploading"><div class="att-thumb">…</div><div class="att-meta"><b>'+esc(u.name)+'</b><span>กำลังอัปโหลด '+fileSize(u.size)+'…</span></div><div></div></div>'; }).join("");
   $("#att-list").innerHTML=html;
   var drop=$("#att-drop"), msg=$("#att-msg");
@@ -1264,31 +1267,31 @@ function renderSigned(){
   drop.hidden = cx;
   $("#att-input").disabled=!canUpload;
   if(!curId) msg.textContent="บันทึกใบเสนอราคาก่อน แล้วจึงแนบเอกสารได้";
-  else if(!API_URL) msg.textContent="ยังไม่ได้เชื่อม Google Drive";
+  else if(!API_URL) msg.textContent="ยังไม่ได้เชื่อมระบบ";
   else if(!docs.length && !uploading.length) msg.textContent="ยังไม่มีเอกสาร กดแนบไฟล์ หรือลากไฟล์มาวางตรงนี้";
   else msg.textContent="แนบเพิ่มได้ หรือลากไฟล์มาวางตรงนี้";
 }
-function driveView(id){ return "https://drive.google.com/file/d/"+encodeURIComponent(id)+"/view"; }
-function driveDownload(id){ return "https://drive.google.com/uc?export=download&id="+encodeURIComponent(id); }
-function driveThumb(id, w){ return "https://drive.google.com/thumbnail?id="+encodeURIComponent(id)+"&sz=w"+w; }
+// signed files live in OneDrive (folder "BRS Quotation Center/เอกสารที่เซ็นแล้ว"); d.url is a company-only share link
+function docView(d){ return String(d.url||""); }
+function docDownload(d){ var u=String(d.url||""); return u ? u+(u.indexOf("?")<0?"?":"&")+"download=1" : ""; }
 function fileB64(f){ return new Promise(function(res, rej){ var fr=new FileReader(); fr.onload=function(){ res(String(fr.result).split(",")[1]||""); }; fr.onerror=function(){ rej(new Error("อ่านไฟล์ไม่ได้")); }; fr.readAsDataURL(f); }); }
 async function uploadSigned(fileList, forId){
   var files=Array.prototype.slice.call(fileList||[]);
   if(!files.length) return;
   var qid=forId||curId;
   if(!qid){ toast("บันทึกใบเสนอราคาก่อน แล้วจึงแนบเอกสารได้"); return; }
-  if(!API_URL){ toast("ยังไม่ได้เชื่อม Google Drive"); return; }
+  if(!API_URL){ toast("ยังไม่ได้เชื่อมระบบ"); return; }
   var ok=0, bad=[], fromList=!!forId;
   if(fromList){ rowUploading[qid]=true; renderList(); }
   for(var i=0;i<files.length;i++){
     var f=files[i], type=attType(f);
     if(!type){ bad.push(f.name+" (รองรับเฉพาะ PDF, JPG, PNG)"); continue; }
-    if(f.size>20*1048576){ bad.push(f.name+" (ใหญ่เกิน 20 MB)"); continue; }
+    if(f.size>15*1048576){ bad.push(f.name+" (ใหญ่เกิน 15 MB)"); continue; }
     var u={name:f.name,size:f.size}; uploading.push(u); busyUploads++; renderSigned();
-    if(fromList) toast("กำลังแนบ "+f.name+" ไป Google Drive"+(files.length>1?" ("+(i+1)+"/"+files.length+")":"")+"…");
+    if(fromList) toast("กำลังแนบ "+f.name+" ไป OneDrive"+(files.length>1?" ("+(i+1)+"/"+files.length+")":"")+"…");
     try{
       var b64=await fileB64(f);
-      var j=await api("uploadFile",{id:qid, name:f.name, type:type, b64:b64});
+      var j=await api("uploadFile",{id:qid, name:f.name, type:type, size:f.size, b64:b64});
       quotes[qid]=j.quote; renderList();
       ok++;
     }catch(e){
@@ -1309,18 +1312,18 @@ $("#att-input").addEventListener("change", function(e){ var fl=e.target.files; u
   ["dragleave","drop"].forEach(function(ev){ drop.addEventListener(ev, function(e){ e.preventDefault(); drop.classList.remove("over"); }); });
   drop.addEventListener("drop", function(e){ if(drop.classList.contains("off")) return; uploadSigned(e.dataTransfer && e.dataTransfer.files); });
 })();
-function downloadSigned(d){ window.open(driveView(d.id), "_blank", "noopener"); }
+function downloadSigned(d){ var u=docView(d); if(u) window.open(u, "_blank", "noopener"); }
 var lbDoc=null;
-function openLightbox(d){ lbDoc=d; $("#lb-img").src=driveThumb(d.id,1600); $("#lb-name").textContent=d.name; $("#lightbox").hidden=false; $("#lb-close").focus(); }
+function openLightbox(d){ lbDoc=d; $("#lb-img").src=docView(d); $("#lb-name").textContent=d.name; $("#lightbox").hidden=false; $("#lb-close").focus(); }
 function closeLightbox(){ $("#lightbox").hidden=true; $("#lb-img").removeAttribute("src"); lbDoc=null; }
 $("#lb-close").addEventListener("click", closeLightbox);
-$("#lb-dl").addEventListener("click", function(){ if(lbDoc) window.open(driveDownload(lbDoc.id), "_blank", "noopener"); });
+$("#lb-dl").addEventListener("click", function(){ if(lbDoc) window.open(docDownload(lbDoc), "_blank", "noopener"); });
 $("#lightbox").addEventListener("click", function(e){ if(e.target.id==="lightbox") closeLightbox(); });
 document.addEventListener("keydown", function(e){ if(e.key==="Escape" && !$("#lightbox").hidden) closeLightbox(); });
 var attDelT;
 $("#att-list").addEventListener("click", async function(e){
   var docs=signedDocs();
-  var v=e.target.closest("[data-att-view]"); if(v){ var d=docs[+v.getAttribute("data-att-view")]; if(!d) return; if(/^image\//.test(d.type)) openLightbox(d); else downloadSigned(d); return; }
+  var v=e.target.closest("[data-att-view]"); if(v){ var d=docs[+v.getAttribute("data-att-view")]; if(!d) return; downloadSigned(d); return; }
   var g=e.target.closest("[data-att-dl]"); if(g){ var d2=docs[+g.getAttribute("data-att-dl")]; if(d2) downloadSigned(d2); return; }
   var x=e.target.closest("[data-att-del]"); if(!x) return;
   var d3=docs[+x.getAttribute("data-att-del")]; if(!d3) return;
