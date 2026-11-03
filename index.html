@@ -340,7 +340,7 @@ table.p-items{width:100%;border-collapse:collapse;margin-top:26px;table-layout:f
 
         <div class="card">
           <div class="card-h"><h2>รายการ</h2>
-            <div class="f" style="grid-auto-flow:column;align-items:center;gap:8px"><label for="f-unit">หน่วยราคา</label><input id="f-unit" data-f="priceUnit" list="dl-unit" style="width:130px"><datalist id="dl-unit"><option value="บาท/เดือน"><option value="บาท"><option value="บาท/ปี"><option value="บาท/ครั้ง"><option value="บาท/เที่ยว"></datalist></div>
+            <div class="f" style="grid-auto-flow:column;align-items:center;gap:8px"><label for="f-unit">หน่วยราคา <span class="req">*</span></label><input id="f-unit" data-f="priceUnit" placeholder="เช่น บาท/เดือน" list="dl-unit" style="width:130px"><datalist id="dl-unit"><option value="บาท/เดือน"><option value="บาท"><option value="บาท/ปี"><option value="บาท/ครั้ง"><option value="บาท/เที่ยว"></datalist></div>
           </div>
           <div class="lines" id="items"></div>
           <button type="button" class="add" id="add-item">+ เพิ่มรายการ</button>
@@ -408,7 +408,6 @@ table.p-items{width:100%;border-collapse:collapse;margin-top:26px;table-layout:f
           <div class="f"><label for="s-prefix">คำนำหน้าเลขที่</label><input id="s-prefix" data-s="prefix"><span class="hint" id="s-prefix-ex"></span></div>
           <div class="f"><label for="s-validDays">อายุใบเสนอราคา (วัน)</label><input id="s-validDays" data-s="validDays" type="number" min="1" inputmode="numeric"></div>
           <div class="f"><label for="s-credit">เครดิต</label><input id="s-credit" data-s="credit"></div>
-          <div class="f"><label for="s-unit">หน่วยราคา</label><input id="s-unit" data-s="priceUnit" list="dl-unit"></div>
           <div class="f"><label for="s-approver">ผู้อนุมัติ</label><input id="s-approver" data-s="approver"></div>
           <div class="f wide"><label for="s-notes">หมายเหตุตั้งต้น (บรรทัดละ 1 ข้อ)</label><textarea id="s-notes" data-s="notes" rows="4" placeholder="เว้นว่างได้"></textarea></div>
         </div>
@@ -508,10 +507,17 @@ var QX = (function () {
 
     // ---- Customer / document info box (rows 13-19) ----
     h(13, 24); for (var r1 = 14; r1 <= 19; r1++) h(r1, 21);
-    cell('A13', 'เรียน ', { bold: true }); cell('B13', q.contact);
-    cell('A14', 'บริษัท ', { bold: true }); cell('B14', q.company);
-    cell('A15', 'ที่อยู่ ', { bold: true }); cell('B15', q.addr1 ? ':  ' + q.addr1 : '');
-    cell('B16', q.addr2 ? ' ' + q.addr2 : '');
+    // customer block: columns B-E merged per row and wrapped, so long names/addresses flow onto new lines
+    function wrapRow(r, label, value, minH) {
+      if (label) cell('A' + r, label, { bold: true, v: 'top' });
+      ws.mergeCells(r, 2, r, 5);
+      cell('B' + r, value || '', { wrap: true, v: 'top' });
+      h(r, Math.max(minH, lineCount(value, 38) * 21 + 3));
+    }
+    wrapRow(13, 'เรียน ', q.contact, 24);
+    wrapRow(14, 'บริษัท ', q.company, 21);
+    wrapRow(15, 'ที่อยู่ ', q.addr1 ? ':  ' + q.addr1 : '', 21);
+    wrapRow(16, '', q.addr2 ? '   ' + q.addr2 : '', 21);
     cell('A18', 'Tel', { bold: true }); cell('B18', ': ' + (q.tel || '-'), { bold: true });
     cell('D18', 'Fax: ' + (q.fax || '-'), { bold: true });
     cell('A19', 'เลขประจำตัวผู้เสียภาษี: ' + (q.taxId || ''), { bold: true, h: 'left' });
@@ -525,7 +531,7 @@ var QX = (function () {
     h(20, 24); h(21, 27.95);
 
     // ---- Items table ----
-    var unit = q.priceUnit || 'บาท/เดือน';
+    var unit = q.priceUnit || '';
     var HR = 22; h(HR, 45.75);
     ws.mergeCells(HR, 2, HR, 7);
     var hd = { bold: true, h: 'center', v: 'middle', wrap: true, fill: HEAD_FILL };
@@ -857,7 +863,7 @@ function blankQuote(){
   return { no:"", autoNo:true, date:d, expireDate:addDays(d, settings.validDays||30), credit:settings.credit||"", headerNote:"",
     preparer:"", prepEmail:"", prepTel:"",
     contact:"", company:"", addr1:"", addr2:"", tel:"", fax:"", taxId:"",
-    priceUnit:settings.priceUnit||"บาท/เดือน", items:[{desc:"",qty:1,price:0}], notes:notes.length?notes:[""], vat:false,
+    priceUnit:"", items:[{desc:"",qty:1,price:0}], notes:notes.length?notes:[""], vat:false,
     approver:settings.approver||"" };
 }
 function startNew(){ cur=blankQuote(); curId=null; dirty=false; shownNo=""; }
@@ -996,7 +1002,7 @@ function tryAutofill(name){
 
 // ---------- paper ----------
 function paperHTML(q, forPdf){
-  var s=settings, t=QX.totals(q), unit=esc(q.priceUnit||"บาท/เดือน");
+  var s=settings, t=QX.totals(q), unit=q.priceUnit?esc(q.priceUnit):'<span class="ph">หน่วย</span>';
   var items=(q.items||[]).filter(function(it){ return (it.desc||"").trim() || Number(it.price) || Number(it.qty); });
   var rows=items.map(function(it,i){
     return '<tr class="pb-avoid"><td class="c">'+(i+1)+'</td><td class="d">'+esc(it.desc)+'</td><td class="c">'+esc(Number(it.qty)||0)+'</td><td class="n">'+money(it.price)+'</td><td class="n">'+money((Number(it.qty)||0)*(Number(it.price)||0))+'</td></tr>';
@@ -1100,6 +1106,7 @@ function validate(){
   if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test((cur.prepEmail||"").trim())) return "กรอกอีเมลผู้จัดทำให้ถูกต้อง เช่น name@brs-group.com";
   if(!(cur.prepTel||"").trim()) return "กรอกเบอร์โทรผู้จัดทำ";
   if(!(cur.items||[]).some(function(it){ return (it.desc||"").trim(); })) return "เพิ่มรายการอย่างน้อย 1 รายการ";
+  if(!(cur.priceUnit||"").trim()) return "กรอกหน่วยราคา เช่น บาท/เดือน หรือ บาท/เที่ยว";
   var no=(cur.no||"").trim();
   if(no && !cur.autoNo && cachedTaken(no, curId)) return "เลขที่ "+no+" เคยออกไปแล้ว ใช้ซ้ำไม่ได้ แก้เลข หรือเว้นว่างเพื่อให้ระบบออกเลขให้";
   return null;
