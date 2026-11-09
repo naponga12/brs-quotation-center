@@ -78,6 +78,11 @@ h2{font-size:15px;font-weight:600;margin:0}
 .chip{border:1px solid var(--line-strong);background:var(--surface);border-radius:999px;padding:5px 12px;cursor:pointer;font-size:13px;color:var(--muted)}
 .chip b{font-weight:600;color:var(--ink);margin-left:4px;font-variant-numeric:tabular-nums}
 .chip[aria-pressed="true"]{border-color:var(--gold);background:var(--gold-soft);color:var(--ink)}
+.yearsel{border:1px solid var(--line-strong);background:var(--surface);border-radius:8px;padding:8px 10px;font:inherit;font-size:14px;color:var(--ink)}
+.ledger tbody tr.runrow{cursor:default}
+.ledger tbody tr.runrow:hover td{background:none}
+.runtag{display:inline-block;margin-left:8px;padding:1px 8px;border-radius:999px;background:var(--sunk);border:1px solid var(--line);color:var(--muted);font-size:12px;font-weight:500;white-space:nowrap;vertical-align:middle}
+.ledger .cust .subj{display:block;font-size:13px;color:var(--muted);max-width:520px;overflow-wrap:anywhere}
 .ledger-wrap{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);overflow-x:auto}
 table.ledger{width:100%;border-collapse:collapse;min-width:880px}
 .ledger th{font-size:12px;font-weight:600;color:var(--muted);text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);letter-spacing:.02em;white-space:nowrap}
@@ -284,6 +289,7 @@ table.p-items{width:100%;border-collapse:collapse;margin-top:26px;table-layout:f
     </div>
     <div class="filters">
       <label class="search"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="muted"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="q-search" type="search" placeholder="ค้นหาจากทุกอย่างในใบ เช่น เลขที่ ลูกค้า รายการ หมายเหตุ ผู้จัดทำ ยอดเงิน" aria-label="ค้นหา"></label>
+      <select class="yearsel" id="q-year" aria-label="เลือกปี"></select>
       <div class="chips" id="chips"></div>
     </div>
     <div class="ledger-wrap">
@@ -668,6 +674,8 @@ var registry = {};         // numbers issued: key -> {no, year, seq, quoteId}
 var settings = clone(DEFAULTS);
 var cur=null, curId=null, dirty=false, saving=false, busyUploads=0;
 var search = "", hideCancelled=false;
+var runRows = [];          // rows of the Run file (Run ใบเสนอราคา SCO.xlsx): {no, subject, date, by, customer}
+var yearSel = String(new Date().getFullYear());   // "all" or a year, e.g. "2026"
 var CLIP='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m21 11-8.6 8.6a5 5 0 0 1-7-7L14 4a3.3 3.3 0 0 1 4.7 4.7l-8.6 8.6a1.7 1.7 0 0 1-2.4-2.4L15.6 7"/></svg>';
 try{ hideCancelled = !!localStorage.getItem("qc-hide-cancelled"); }catch(_){}
 
@@ -687,6 +695,8 @@ async function api(action, payload){
 function applyData(j){
   var next={}; (j.quotes||[]).forEach(function(x){ next[x.id]=x.data; }); quotes=next;
   var reg={}; (j.numbers||[]).forEach(function(n){ reg[noKey(n.no)]=n; }); registry=reg;
+  // rows of the Run file come in "numbers" (Script 2 adds subject, date, by, customer to each number)
+  runRows=(Array.isArray(j.runRows) ? j.runRows : (j.numbers||[])).filter(function(r){ return r && String(r.no||"").trim(); });
   settings=Object.assign(clone(DEFAULTS), j.settings||{});
   afterData();
 }
@@ -797,25 +807,86 @@ function matchQuote(q, terms){
   }
   return found.slice(0,2);
 }
+var EMPTY_HTML="<b>ยังไม่มีใบเสนอราคา</b>กด “สร้างใบเสนอราคา” ด้านบนเพื่อเริ่มใบแรก ใบที่บันทึกจะเก็บในไฟล์ Excel บน SharePoint และแสดงที่นี่ให้ทุกคนในทีมเห็น";
+// ---------- rows from the Run file (numbers issued outside this system) ----------
+// date in the Run file may come as ISO (converted by Script 2), or as text such as 3/11/2026 or 3/11/2569
+function runISO(d){
+  var t=String(d==null?"":d).trim(); if(!t) return "";
+  if(/^\d{4}-\d{2}-\d{2}/.test(t)) return t.slice(0,10);
+  var m=t.match(/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})$/);
+  if(m){ var y=+m[3]; if(y<100) y+=2500; if(y>2400) y-=543; if(+m[2]>=1 && +m[2]<=12 && +m[1]>=1 && +m[1]<=31) return y+"-"+pad(+m[2])+"-"+pad(+m[1]); }
+  return "";
+}
+function runDateText(d){ var iso=runISO(d); return iso ? fmtDate(iso) : String(d==null?"":d); }
+// Run-file rows whose number is not a quotation saved in this system
+function outsideRows(){
+  var inSys={}; Object.keys(quotes).forEach(function(k){ var n=String(quotes[k].no||"").trim(); if(n) inSys[n]=1; });
+  var seen={};
+  return runRows.filter(function(r){ var n=String(r.no).trim(); if(inSys[n]||seen[n]) return false; seen[n]=1; return true; })
+    .map(function(r){ return {id:"run:"+String(r.no).trim(), run:r}; });
+}
+function rowYear(x){
+  var no=x.run ? x.run.no : x.q.no, p=parseNo(no);
+  if(p.year) return p.year;
+  var iso=x.run ? runISO(x.run.date) : (x.q.date||"");
+  return iso ? +iso.slice(0,4) : null;
+}
+function rowSortKey(x){
+  var no=x.run ? x.run.no : x.q.no, p=parseNo(no), iso=x.run ? runISO(x.run.date) : (x.q.date||"");
+  return {y:p.year||(iso?+iso.slice(0,4):0), s:p.seq||0, d:iso, no:String(no||"")};
+}
+function sortRows(arr){
+  return arr.map(function(x){ x._k=rowSortKey(x); return x; }).sort(function(a,b){
+    return (b._k.y-a._k.y) || (b._k.s-a._k.s) || b._k.d.localeCompare(a._k.d) || b._k.no.localeCompare(a._k.no);
+  });
+}
+function matchRun(r, terms){
+  var parts=[{label:"เลขที่",text:r.no,shown:1},{label:"เรื่อง",text:r.subject||"",shown:1},{label:"ลูกค้า",text:r.customer||"",shown:1},
+    {label:"ผู้ดำเนินการ",text:r.by||"",shown:1},{label:"วันที่",text:runDateText(r.date)+" "+String(r.date||""),shown:1}];
+  return terms.every(function(t){ return parts.some(function(p){ return norm(p.text).indexOf(t)>=0; }); });
+}
+function renderYears(all){
+  var ys={}; all.forEach(function(x){ var y=rowYear(x); if(y) ys[y]=1; });
+  ys[new Date().getFullYear()]=1; if(yearSel!=="all") ys[yearSel]=1;
+  var list=Object.keys(ys).sort(function(a,b){ return b-a; });
+  $("#q-year").innerHTML='<option value="all">ทุกปี</option>'+list.map(function(y){ return '<option value="'+y+'">ปี '+y+'</option>'; }).join("");
+  $("#q-year").value=yearSel;
+}
 function renderList(){
-  var all=sortedQuotes();
-  var nCancel=all.filter(function(x){ return x.q.cancelled; }).length;
+  var sys=sortedQuotes(), out=outsideRows();
+  var all=sortRows(sys.concat(out));
+  renderYears(all);
+  var inYear=all.filter(function(x){ return yearSel==="all" || String(rowYear(x))===yearSel; });
+  var ySys=inYear.filter(function(x){ return !x.run; }), yOut=inYear.filter(function(x){ return x.run; });
+  var nCancel=ySys.filter(function(x){ return x.q.cancelled; }).length;
   $("#chips").innerHTML = (nCancel ? '<button class="chip" data-hidecancel aria-pressed="'+hideCancelled+'">ซ่อนใบที่ลบแล้ว<b>'+nCancel+'</b></button>' : '');
   var terms=norm(search).split(/\s+/).filter(Boolean);
   var hits={};
-  var rows=all.filter(function(x){
+  var rows=inYear.filter(function(x){
+    if(x.run) return !terms.length || matchRun(x.run, terms);
     if(hideCancelled && x.q.cancelled) return false;
     if(!terms.length) return true;
     var m=matchQuote(x.q, terms); if(!m) return false;
     hits[x.id]=m; return true;
   });
-  var active=all.filter(function(x){ return !x.q.cancelled; });
+  var active=ySys.filter(function(x){ return !x.q.cancelled; });
   var sum=active.reduce(function(a,x){ return a+qTotal(x.q); },0);
-  $("#list-sum").textContent = !dbReady ? "กำลังโหลดข้อมูล…" : (all.length ? ("ใช้งาน "+active.length+" ใบ · มูลค่ารวม "+money(sum)+" บาท"+(nCancel?" · ลบแล้ว "+nCancel+" ใบ":"")) : "ยังไม่มีข้อมูล");
+  var yl = yearSel==="all" ? "" : "ปี "+yearSel+" · ";
+  $("#list-sum").textContent = !dbReady ? "กำลังโหลดข้อมูล…" : (inYear.length ? (yl+"ในระบบ "+active.length+" ใบ · มูลค่ารวม "+money(sum)+" บาท"+(nCancel?" · ลบแล้ว "+nCancel+" ใบ":"")+(yOut.length?" · ออกนอกระบบ (จากไฟล์ Run) "+yOut.length+" ใบ":"")) : (all.length ? yl+"ไม่มีใบในปีนี้" : "ยังไม่มีข้อมูล"));
   $("#empty").hidden = rows.length>0 || !dbReady;
-  if(all.length && !rows.length){ $("#empty").hidden=false; $("#empty").innerHTML="<b>ไม่พบใบที่ตรงกับการค้นหา</b>ลองเปลี่ยนคำค้น"; }
-  else if(!all.length){ $("#empty").innerHTML="<b>ยังไม่มีใบเสนอราคา</b>กด “สร้างใบเสนอราคา” ด้านบนเพื่อเริ่มใบแรก ใบที่บันทึกจะเก็บในไฟล์ Excel บน SharePoint และแสดงที่นี่ให้ทุกคนในทีมเห็น"; }
+  if(inYear.length && !rows.length){ $("#empty").hidden=false; $("#empty").innerHTML="<b>ไม่พบใบที่ตรงกับการค้นหา</b>ลองเปลี่ยนคำค้น"+(yearSel!=="all"?" หรือเลือก “ทุกปี”":""); }
+  else if(all.length && !inYear.length){ $("#empty").innerHTML="<b>ไม่มีใบเสนอราคาในปี "+esc(yearSel)+"</b>เลือกปีอื่น หรือ “ทุกปี” ที่ช่องเลือกปี"; }
+  else if(!all.length){ $("#empty").innerHTML=EMPTY_HTML; }
   $("#rows").innerHTML=rows.map(function(x){
+    if(x.run){
+      var r=x.run;
+      return '<tr class="runrow" title="ใบนี้ออกเลขนอกระบบ มีข้อมูลเฉพาะในไฟล์ Run ใบเสนอราคา SCO.xlsx ดูได้อย่างเดียว"><td><span class="no">'+esc(String(r.no).trim())+'</span><span class="runtag">นอกระบบ</span></td>'+
+        '<td>'+esc(runDateText(r.date))+'</td>'+
+        '<td class="cust"><b>'+esc(r.customer||"(ไม่ระบุลูกค้า)")+'</b>'+(r.subject?'<span class="subj">เรื่อง: '+esc(r.subject)+'</span>':'')+'</td>'+
+        '<td class="amt muted">—</td>'+
+        '<td class="muted" style="font-size:13px">'+esc(r.by||"")+'</td>'+
+        '<td class="acts"></td></tr>';
+    }
     var q=x.q, id=esc(x.id), cx=!!q.cancelled;
     var acts = cx
       ? '<button class="btn sm ghost" data-act="dup" data-id="'+id+'">คัดลอก</button>'
@@ -831,6 +902,7 @@ function renderList(){
 }
 $("#chips").addEventListener("click", function(e){ var b=e.target.closest("[data-hidecancel]"); if(!b) return; hideCancelled=!hideCancelled; try{ localStorage.setItem("qc-hide-cancelled", hideCancelled?"1":""); }catch(_){} renderList(); });
 $("#q-search").addEventListener("input", function(e){ search=e.target.value; renderList(); });
+$("#q-year").addEventListener("change", function(e){ yearSel=e.target.value; renderList(); });
 $("#rows").addEventListener("click", function(e){
   var a=e.target.closest("[data-act]");
   if(a){ e.stopPropagation(); var id=a.getAttribute("data-id"), act=a.getAttribute("data-act");
@@ -1075,6 +1147,7 @@ function cachedLatest(year){
   Object.keys(quotes).forEach(function(k){ take(quotes[k]); });
   Object.keys(registry).forEach(function(k){ take(registry[k]); });
   Object.keys(localReg).forEach(function(k){ take(localReg[k]); });
+  runRows.forEach(function(r){ take(parseNo(r.no)); });
   return max;
 }
 function cachedTaken(no, ownId){
