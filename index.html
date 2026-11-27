@@ -1224,6 +1224,10 @@ async function exportPdf(q){
   host.style.cssText="position:fixed;left:-12000px;top:0;width:695px;background:#fff";
   host.innerHTML=paperHTML(q,true); document.body.appendChild(host);
   markThaiWordBreaks(host);
+  // On Windows the page scrollbar (~17px) makes html2pdf centre the paper differently in its hidden copy,
+  // shifting it right and cutting off the right edge. Hide the scrollbar while the PDF is drawn.
+  var rootEl=document.documentElement, oldOverflow=rootEl.style.overflow, oldScroll=window.scrollY;
+  rootEl.style.overflow="hidden";
   try{
     await loadLib("html2pdf","https://cdn.jsdelivr.net/npm/html2pdf.js@0.10.1/dist/html2pdf.bundle.min.js");
     if(document.fonts && document.fonts.ready) await document.fonts.ready;
@@ -1235,7 +1239,7 @@ async function exportPdf(q){
     }).from(host.firstElementChild).outputPdf("blob");
     await offer(fname(q,"pdf"), blob);
   }catch(e){ toast("สร้าง PDF ไม่สำเร็จ: "+(e.message||e)); }
-  finally{ host.remove(); }
+  finally{ host.remove(); rootEl.style.overflow=oldOverflow; window.scrollTo(0, oldScroll); }
 }
 $("#b-xlsx").addEventListener("click", function(){ exportXlsx(null); });
 var delT;
