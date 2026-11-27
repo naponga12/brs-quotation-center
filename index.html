@@ -838,7 +838,7 @@ function renderList(){
   }).join("")+legacyRows.map(function(n){
     return '<tr class="legacy"><td><span class="no">'+esc(n.no)+'</span><span class="legacy-tag" title="เลขนี้ออกในไฟล์ Run ใบเสนอราคา SCO โดยตรง ไม่ได้สร้างผ่านระบบนี้ จึงไม่มีรายการและยอดเงิน">ไฟล์ Run</span></td><td>'+esc(fmtDate(n.date)||n.date||"")+'</td>'+
       '<td class="cust"><b>'+esc(n.customer||"—")+'</b><span>'+esc(n.subject||"")+'</span></td>'+
-      '<td class="amt muted">—</td><td class="muted" style="font-size:13px">'+esc(n.person||"")+'</td><td class="acts muted" style="font-size:12px">ดูรายละเอียดในไฟล์ Run</td></tr>';
+      '<td class="amt muted">—</td><td class="muted" style="font-size:13px">'+esc(n.person||"")+'</td><td class="acts">'+(canWrite?'<button class="btn sm ghost" data-act="fill" data-no="'+esc(n.no)+'" title="กรอกรายการและราคาให้เลขนี้ เพื่อออก PDF/Excel ได้">ใส่รายละเอียด</button>':'')+'</td></tr>';
   }).join("");
 }
 $("#chips").addEventListener("click", function(e){ var b=e.target.closest("[data-hidecancel]"); if(!b) return; hideCancelled=!hideCancelled; try{ localStorage.setItem("qc-hide-cancelled", hideCancelled?"1":""); }catch(_){} renderList(); });
@@ -852,6 +852,7 @@ $("#rows").addEventListener("click", function(e){
     else if(act==="del") armDelete(a, id);
     else if(act==="att"){ rowAttId=id; var ri=$("#row-att-input"); ri.value=""; ri.click(); }
     else if(act==="viewatt"){ pendingScroll="signed-card"; go("q-"+id); }
+    else if(act==="fill") fillLegacy(a.getAttribute("data-no"));
     return; }
   var tr=e.target.closest("[data-open]"); if(tr) go("q-"+tr.getAttribute("data-open"));
 });
@@ -889,6 +890,17 @@ function duplicate(id){
   cur=q; curId=null; dirty=true; shownNo="";
   if(location.hash==="#new") render(); else location.hash="new";
   toast("คัดลอกจาก "+(src.no||"ใบเดิม")+" แล้ว กรอกชื่อ อีเมล และเบอร์โทรผู้จัดทำ แล้วกดบันทึก");
+}
+// a number that exists only in the Run file: open a new form locked to that number so its details can be filled in
+function fillLegacy(no){
+  var n=registry[noKey(no)]; if(!n) return;
+  var q=blankQuote();
+  q.no=n.no; q.autoNo=false; q.legacyNo=n.no;
+  if(/^\d{4}-\d{2}-\d{2}$/.test(n.date||"")){ q.date=n.date; q.expireDate=addDays(n.date, settings.validDays||30); }
+  q.company=n.customer||""; q.preparer=n.person||""; q.items=[{desc:n.subject||"",qty:1,price:0}];
+  cur=q; curId=null; dirty=true; shownNo="";
+  if(location.hash==="#new") render(); else location.hash="new";
+  toast("ใส่รายละเอียดให้ "+n.no+" กรอกรายการ ราคา อีเมลและเบอร์ผู้จัดทำ แล้วกดบันทึก");
 }
 function loadIntoForm(id){ cur=clone(quotes[id]); cur.autoNo=false; if(!cur.items||!cur.items.length) cur.items=[{desc:"",qty:1,price:0}]; if(!cur.notes) cur.notes=[]; curId=id; dirty=false; renderEditor(); }
 
@@ -931,6 +943,7 @@ function renderEditor(){
     if(el.type==="checkbox") el.checked=!!cur[k]; else el.value = cur[k]==null?"":cur[k];
   });
   syncUnitSel(false);
+  $("#f-no").readOnly = !curId && !!cur.legacyNo;
   updNoHint(); updExpHint();
   if(cx){ $("#no-hint").textContent=""; $("#exp-hint").textContent=""; }
   var bd=$("#b-del"); bd.hidden = !curId || !canWrite || cx; bd.classList.remove("armed"); bd.disabled=false; bd.querySelector("span").textContent="ลบใบนี้";
@@ -1106,6 +1119,7 @@ function cachedLatest(year){
 }
 function cachedTaken(no, ownId){
   no=String(no||"").trim(); if(!no) return false;
+  if(!ownId && cur && cur.legacyNo && no===cur.legacyNo) return false;
   var r=registry[noKey(no)]||localReg[noKey(no)];
   var ownNo = ownId && quotes[ownId] ? String(quotes[ownId].no||"").trim() : "";
   if(r && no!==ownNo && r.quoteId!==ownId) return true;
@@ -1117,6 +1131,7 @@ function updNoHint(){
   var savedNo = curId && quotes[curId] ? (quotes[curId].no||"") : "";
   h.className="hint";
   if(!curId && cur.autoNo){ h.textContent = !cur.date ? "ใส่วันที่ก่อน ระบบใช้ปีจากวันที่เอกสาร" : (!dbReady ? "กำลังตรวจเลขล่าสุด…" : "ระบบใส่เลขถัดไปให้แล้ว ไม่ต้องกรอกเอง"); return; }
+  if(!curId && cur.legacyNo){ h.textContent="เลขเดิมจากไฟล์ Run ล็อกไว้ บันทึกแล้วจะเติมรายละเอียดให้เลขนี้"; return; }
   if(!no){ h.textContent = "เว้นว่างไว้ ระบบจะออกเลขให้ตอนบันทึก"; return; }
   if(no===savedNo){ h.textContent="เลขของใบนี้ แก้ได้ แต่ห้ามซ้ำกับเลขที่เคยออกไปแล้ว"; return; }
   if(cachedTaken(no, curId)){ h.className="hint err"; h.textContent="เลขนี้เคยออกไปแล้ว ใช้ซ้ำไม่ได้ เว้นว่างเพื่อให้ระบบออกเลขให้"; return; }
@@ -1153,7 +1168,8 @@ async function save(){
     var wasAuto=!!q.autoNo, shown=shownNo; delete q.autoNo;
     if(wasAuto) q.no="";
     delete q.signedDocs; delete q.createdBy; delete q.updatedBy;
-    var prevNo = curId && quotes[curId] ? String(quotes[curId].no||"").trim() : "";
+    var prevNo = curId && quotes[curId] ? String(quotes[curId].no||"").trim() : String(cur.legacyNo||"");
+    delete q.legacyNo;
     var j=await api("saveQuote",{id:curId||null, quote:q, autoNo:wasAuto, prevNo:prevNo, prefix:settings.prefix||"Q/SCO/"});
     var id=j.id; q=j.quote; quotes[id]=q;
     if(j.number) registry[noKey(j.number.no)]=j.number;
