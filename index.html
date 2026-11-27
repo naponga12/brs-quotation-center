@@ -1047,10 +1047,10 @@ function paperHTML(q, forPdf){
       '<div class="p-kv r"><b>Credit Date</b><span>'+esc(q.credit||"")+'</span></div>'+
       '<div class="p-kv r"><b>หมายเหตุ</b><span>'+esc(q.headerNote||"")+'</span></div>'+
     '</div></div>'+
-    '<table class="p-items"><colgroup><col style="width:8.3%"><col style="width:62.5%"><col style="width:9.6%"><col style="width:9.6%"><col style="width:10%"></colgroup>'+
+    '<table class="p-items"><colgroup><col style="width:7%"><col style="width:52%"><col style="width:9%"><col style="width:15%"><col style="width:17%"></colgroup>'+
       '<thead><tr><th>ลำดับ<br>(No.)</th><th>รายการ<br>(Item)</th><th>จำนวน</th><th>ราคา/หน่วย<br>('+unit+')</th><th>ราคารวม<br>('+unit+')</th></tr></thead>'+
       '<tbody>'+rows+'</tbody></table>'+
-    '<div class="p-tot pb-avoid" style="grid-template-columns:70.8% 19.2% 10%">'+tot+'</div>'+
+    '<div class="p-tot pb-avoid" style="grid-template-columns:59% 24% 17%">'+tot+'</div>'+
     (notes.length ? '<div class="p-notes"><div>หมายเหตุ:</div><ol>'+notes.map(function(n,i){ return '<li class="pb-avoid"><span>'+(i+1)+')</span><span>'+esc(n)+'</span></li>'; }).join("")+'</ol></div>' : '')+
     '<div class="p-sign pb-avoid">'+
       '<div><div class="who">ผู้จัดทำ</div><div class="nm">('+ph(q.preparer,"ชื่อผู้จัดทำ")+')</div><div class="dt"><span style="text-align:left">วันที่</span><span>'+esc(fmtDate(q.date))+'</span></div></div>'+
