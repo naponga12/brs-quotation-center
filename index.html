@@ -93,6 +93,9 @@ table.ledger{width:100%;border-collapse:collapse;min-width:880px}
 .ledger .hit em{font-style:normal;font-weight:600;color:var(--ink)}
 mark{background:var(--gold-soft);color:var(--ink);border-radius:3px;padding:0 2px}
 .ledger .acts{white-space:nowrap;text-align:right}
+.ledger tr.legacy td{background:var(--bg)}
+.ledger tr.legacy{cursor:default}
+.legacy-tag{display:inline-block;margin-left:8px;font-size:11px;padding:1px 7px;border-radius:999px;border:1px solid var(--line-strong);color:var(--muted);vertical-align:middle}
 .req{color:var(--danger)}
 .att-list{display:grid;gap:8px}
 .att-list:empty{display:none}
@@ -809,12 +812,17 @@ function renderList(){
     var m=matchQuote(x.q, terms); if(!m) return false;
     hits[x.id]=m; return true;
   });
+  // numbers in the Run file that were not made in this system (e.g. Q/SCO/2026001-020): show them read-only
+  var haveNo={}; all.forEach(function(x){ haveNo[String(x.q.no||"").trim()]=1; });
+  var legacy=Object.keys(registry).map(function(k){ return registry[k]; }).filter(function(n){ return n && n.no && !n.quoteId && !haveNo[String(n.no).trim()]; })
+    .sort(function(a,b){ return (b.year||0)-(a.year||0) || (b.seq||0)-(a.seq||0) || String(b.no).localeCompare(String(a.no)); });
+  var legacyRows=legacy.filter(function(n){ if(!terms.length) return true; var hay=norm([n.no,n.subject,n.customer,n.person,fmtDate(n.date)].join(" ")); return terms.every(function(t){ return hay.indexOf(t)>=0; }); });
   var active=all.filter(function(x){ return !x.q.cancelled; });
   var sum=active.reduce(function(a,x){ return a+qTotal(x.q); },0);
-  $("#list-sum").textContent = !dbReady ? "กำลังโหลดข้อมูล…" : (all.length ? ("ใช้งาน "+active.length+" ใบ · มูลค่ารวม "+money(sum)+" บาท"+(nCancel?" · ลบแล้ว "+nCancel+" ใบ":"")) : "ยังไม่มีข้อมูล");
-  $("#empty").hidden = rows.length>0 || !dbReady;
-  if(all.length && !rows.length){ $("#empty").hidden=false; $("#empty").innerHTML="<b>ไม่พบใบที่ตรงกับการค้นหา</b>ลองเปลี่ยนคำค้น"; }
-  else if(!all.length){ $("#empty").innerHTML="<b>ยังไม่มีใบเสนอราคา</b>กด “สร้างใบเสนอราคา” ด้านบนเพื่อเริ่มใบแรก ใบที่บันทึกจะเก็บในไฟล์ Excel บน SharePoint และแสดงที่นี่ให้ทุกคนในทีมเห็น"; }
+  $("#list-sum").textContent = !dbReady ? "กำลังโหลดข้อมูล…" : (all.length ? ("ใช้งาน "+active.length+" ใบ · มูลค่ารวม "+money(sum)+" บาท"+(nCancel?" · ลบแล้ว "+nCancel+" ใบ":"")+(legacy.length?" · จากไฟล์ Run (ไม่มีรายละเอียด) "+legacy.length+" ใบ":"")) : (legacy.length?"เลขจากไฟล์ Run "+legacy.length+" ใบ":"ยังไม่มีข้อมูล"));
+  $("#empty").hidden = rows.length+legacyRows.length>0 || !dbReady;
+  if((all.length||legacy.length) && !rows.length && !legacyRows.length){ $("#empty").hidden=false; $("#empty").innerHTML="<b>ไม่พบใบที่ตรงกับการค้นหา</b>ลองเปลี่ยนคำค้น"; }
+  else if(!all.length && !legacy.length){ $("#empty").innerHTML="<b>ยังไม่มีใบเสนอราคา</b>กด “สร้างใบเสนอราคา” ด้านบนเพื่อเริ่มใบแรก ใบที่บันทึกจะเก็บในไฟล์ Excel บน SharePoint และแสดงที่นี่ให้ทุกคนในทีมเห็น"; }
   $("#rows").innerHTML=rows.map(function(x){
     var q=x.q, id=esc(x.id), cx=!!q.cancelled;
     var acts = cx
@@ -827,6 +835,10 @@ function renderList(){
       '<td class="amt">'+money(qTotal(q))+(q.vat?'<div class="muted" style="font-size:12px">รวม VAT</div>':'')+'</td>'+
       '<td class="muted" style="font-size:13px">'+esc(q.preparer||"")+'</td>'+
       '<td class="acts">'+acts+'</td></tr>';
+  }).join("")+legacyRows.map(function(n){
+    return '<tr class="legacy"><td><span class="no">'+esc(n.no)+'</span><span class="legacy-tag" title="เลขนี้ออกในไฟล์ Run ใบเสนอราคา SCO โดยตรง ไม่ได้สร้างผ่านระบบนี้ จึงไม่มีรายการและยอดเงิน">ไฟล์ Run</span></td><td>'+esc(fmtDate(n.date)||n.date||"")+'</td>'+
+      '<td class="cust"><b>'+esc(n.customer||"—")+'</b><span>'+esc(n.subject||"")+'</span></td>'+
+      '<td class="amt muted">—</td><td class="muted" style="font-size:13px">'+esc(n.person||"")+'</td><td class="acts muted" style="font-size:12px">ดูรายละเอียดในไฟล์ Run</td></tr>';
   }).join("");
 }
 $("#chips").addEventListener("click", function(e){ var b=e.target.closest("[data-hidecancel]"); if(!b) return; hideCancelled=!hideCancelled; try{ localStorage.setItem("qc-hide-cancelled", hideCancelled?"1":""); }catch(_){} renderList(); });
